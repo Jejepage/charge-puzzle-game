@@ -101,16 +101,15 @@
     const CONFIG = { cols:7, rows:8, colorCount:4, targetBatteryCount:7, batteryCharge:10, drainIntervalMs:2000, drainAmount:1, rowHighlightMs:480 };
     const COLORS = ['blue','red','green','yellow'];
     const COLOR_NAMES = { blue:'BLAU', red:'ROT', green:'GRÜN', yellow:'GELB' };
-    const state = { grid:[], selected:null, running:false, paused:false, resolving:false, battery:100, score:0, rows:0, batteries:0, chain:0, startedAt:0, elapsedBeforePause:0, timerId:null, clockId:null };
+    const state = { grid:[], selected:null, running:false, paused:false, resolving:false, clearingCells:new Set(), battery:100, score:0, rows:0, batteries:0, chain:0, startedAt:0, elapsedBeforePause:0, timerId:null, clockId:null };
     const $ = id => document.getElementById(id);
     const board = $('board');
 
     function randomPiece() { return Math.random() < .12 ? { type:'battery' } : { type:'module', color:COLORS[Math.floor(Math.random()*CONFIG.colorCount)] }; }
     function createBoard() {
-      state.grid = Array.from({length:CONFIG.rows}, () => Array.from({length:CONFIG.cols}, randomPiece));
-      // Keep the opening board from immediately resolving; it makes the first move intentional.
-      while (isBottomRowValid()) state.grid[CONFIG.rows - 1] = Array.from({length:CONFIG.cols}, randomPiece);
-      ensureBatteryTarget();
+      // Keep the opening board from immediately resolving; the first move stays intentional.
+      do { state.grid = Array.from({length:CONFIG.rows}, () => Array.from({length:CONFIG.cols}, randomPiece)); ensureBatteryTarget(); }
+      while (findValidLines().count > 0);
     }
     function ensureBatteryTarget() {
       let batteries = state.grid.flat().filter(p => p.type === 'battery').length;
@@ -123,7 +122,8 @@
       board.style.gridTemplateRows = `repeat(${CONFIG.rows}, 1fr)`;
       board.innerHTML = '';
       state.grid.forEach((row,r) => row.forEach((piece,c) => {
-        const cell = document.createElement('button'); cell.type = 'button'; cell.className = `cell${r === CONFIG.rows-1 ? ' bottom-row':''}${state.selected?.r===r && state.selected?.c===c ? ' selected':''}`; cell.dataset.row=r; cell.dataset.col=c; cell.setAttribute('role','gridcell');
+        const clearing = state.clearingCells.has(`${r},${c}`);
+        const cell = document.createElement('button'); cell.type = 'button'; cell.className = `cell${r === CONFIG.rows-1 ? ' bottom-row':''}${state.selected?.r===r && state.selected?.c===c ? ' selected':''}${clearing ? ' clearing':''}`; cell.dataset.row=r; cell.dataset.col=c; cell.setAttribute('role','gridcell');
         const icon = document.createElement('span'); icon.className = piece.type === 'battery' ? 'battery-piece' : `module ${piece.color}`; icon.setAttribute('aria-label',piece.type==='battery'?'Batterie':COLOR_NAMES[piece.color]); cell.append(icon); cell.addEventListener('click', () => selectCell(r,c)); board.append(cell);
       }));
     }
@@ -144,28 +144,57 @@
       const first=state.selected; state.selected=null; swap(first,next); renderBoard(); setHint('Tausch ausgeführt.'); await resolveBoard();
     }
     function swap(a,b) { [state.grid[a.r][a.c],state.grid[b.r][b.c]] = [state.grid[b.r][b.c],state.grid[a.r][a.c]]; }
-    function isBottomRowValid() {
-      const modules=state.grid[CONFIG.rows-1].filter(p => p.type==='module');
-      return modules.length > 0 && modules.every(p => p.color === modules[0].color);
+    // A complete line may contain batteries, but its regular modules must share one colour.
+    function isLineValid(line) {
+      const modules=line.filter(piece => piece.type==='module');
+      return modules.length > 0 && modules.every(piece => piece.color === modules[0].color);
+    }
+    function findValidLines() {
+      const rows=[]; const cols=[];
+      state.grid.forEach((row,r) => { if (isLineValid(row)) rows.push(r); });
+      for (let c=0;c<CONFIG.cols;c++) { if (isLineValid(state.grid.map(row => row[c]))) cols.push(c); }
+      return { rows, cols, count:rows.length+cols.length };
+    }
+    function cellsInLines(lines) {
+      const cells=new Set();
+      lines.rows.forEach(r => { for(let c=0;c<CONFIG.cols;c++) cells.add(`${r},${c}`); });
+      lines.cols.forEach(c => { for(let r=0;r<CONFIG.rows;r++) cells.add(`${r},${c}`); });
+      return cells;
+    }
+    function collapseClearedCells(cleared) {
+      const next=Array.from({length:CONFIG.rows},()=>Array(CONFIG.cols));
+      for (let c=0;c<CONFIG.cols;c++) {
+        const survivors=[];
+        for (let r=CONFIG.rows-1;r>=0;r--) if (!cleared.has(`${r},${c}`)) survivors.push(state.grid[r][c]);
+        for (let r=CONFIG.rows-1;r>=0;r--) next[r][c]=survivors.shift() || randomPiece();
+      }
+      state.grid=next; ensureBatteryTarget();
     }
     function sleep(ms) { return new Promise(resolve => setTimeout(resolve,ms)); }
     async function resolveBoard() {
-      state.resolving=true; state.chain=0;
-      while (state.running && isBottomRowValid()) {
+      state.resolving=true; state.chain=0; let bonusIndex=0;
+      while (state.running) {
+        const lines=findValidLines();
+        if (!lines.count) break;
         state.chain++;
-        const bottom=state.grid[CONFIG.rows-1]; const collected=bottom.filter(p=>p.type==='battery').length;
-        document.querySelectorAll('.bottom-row').forEach(cell=>cell.classList.add('clearing'));
-        setHint(`REIHE SYNCHRONISIERT · ${state.chain}. KETTE`); await sleep(CONFIG.rowHighlightMs);
-        state.rows++; state.batteries+=collected; state.score += 100 + (state.chain-1)*50 + collected*50;
+        const cleared=cellsInLines(lines);
+        const collected=[...cleared].filter(key => { const [r,c]=key.split(',').map(Number); return state.grid[r][c].type==='battery'; }).length;
+        state.clearingCells=cleared; renderBoard();
+        const direction=[lines.rows.length && `${lines.rows.length} H`, lines.cols.length && `${lines.cols.length} V`].filter(Boolean).join(' + ');
+        setHint(`${direction} SYNCHRONISIERT · KETTE ${state.chain}`); await sleep(CONFIG.rowHighlightMs);
+        // Each simultaneously cleared line advances the chain bonus; intersecting batteries count only once.
+        for (let i=0;i<lines.count;i++) state.score += 100 + (bonusIndex+i)*50;
+        bonusIndex+=lines.count;
+        state.rows+=lines.count; state.batteries+=collected;
         changeBattery(collected*CONFIG.batteryCharge);
-        state.grid.pop(); state.grid.unshift(Array.from({length:CONFIG.cols},randomPiece)); ensureBatteryTarget(); renderBoard(); updateHud();
+        state.clearingCells=new Set(); collapseClearedCells(cleared); renderBoard(); updateHud();
         await sleep(180);
       }
-      state.resolving=false; if (state.running) setHint('Wähle zwei benachbarte Module.');
+      state.clearingCells=new Set(); state.resolving=false; if (state.running) setHint('Wähle zwei benachbarte Module.');
     }
     function changeBattery(amount) { state.battery=Math.max(0,Math.min(100,state.battery+amount)); updateHud(); if (state.battery===0) endGame(); }
     function startGame() {
-      clearTimers(); Object.assign(state,{selected:null,running:true,paused:false,resolving:false,battery:100,score:0,rows:0,batteries:0,chain:0,startedAt:Date.now(),elapsedBeforePause:0});
+      clearTimers(); Object.assign(state,{selected:null,running:true,paused:false,resolving:false,clearingCells:new Set(),battery:100,score:0,rows:0,batteries:0,chain:0,startedAt:Date.now(),elapsedBeforePause:0});
       createBoard(); renderBoard(); updateHud(); $('startScreen').style.display='none'; $('gameOver').classList.remove('open'); $('gameUi').classList.add('visible'); $('pauseButton').textContent='PAUSE'; setHint('Wähle zwei benachbarte Module.');
       state.timerId=setInterval(()=>changeBattery(-CONFIG.drainAmount),CONFIG.drainIntervalMs); state.clockId=setInterval(updateHud,250);
     }
