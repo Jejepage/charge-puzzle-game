@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#070b13">
+  <title>CHARGE — Keep it alive.</title>
+  <style>
+    :root { color-scheme: dark; --ink:#e8f4ff; --muted:#7f96aa; --line:#223143; --panel:#0d1521; --accent:#49e3ff; --danger:#ff536b; }
+    * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+    html,body { min-height:100%; margin:0; background:#070b13; color:var(--ink); font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    body { overflow-x:hidden; }
+    button,input { font:inherit; }
+    button { color:inherit; cursor:pointer; }
+    .app { min-height:100dvh; max-width:660px; margin:auto; padding:calc(16px + env(safe-area-inset-top)) 18px calc(18px + env(safe-area-inset-bottom)); display:flex; flex-direction:column; }
+    .game-ui { display:none; flex:1; flex-direction:column; gap:18px; }
+    .game-ui.visible { display:flex; }
+    .hud { display:grid; grid-template-columns:1fr auto; gap:12px; align-items:center; }
+    .battery-status { display:flex; gap:12px; align-items:center; min-width:0; }
+    .battery-shell { width:clamp(145px, 43vw, 260px); height:35px; padding:4px; border:2px solid #b8cad8; border-radius:6px; position:relative; }
+    .battery-shell::after { content:""; position:absolute; right:-7px; top:9px; width:5px; height:13px; background:#b8cad8; border-radius:0 2px 2px 0; }
+    .battery-level { height:100%; width:100%; border-radius:2px; background:linear-gradient(90deg,#45e7bb,#69f5a7); transition:width .35s ease, background .3s; }
+    .battery-level.low { background:linear-gradient(90deg,#ff5974,#ff9a5c); }
+    .percent { font-size:clamp(1.15rem,4vw,1.55rem); font-weight:800; white-space:nowrap; }
+    .stats { text-align:right; line-height:1.5; font-size:.75rem; color:var(--muted); }
+    .stats strong { color:var(--ink); font-size:.98rem; }
+    .board-wrap { flex:1; min-height:0; display:grid; place-items:center; }
+    .board { width:min(100%, 560px); aspect-ratio:7/8; display:grid; gap:5px; padding:7px; border:1px solid #2a4054; border-radius:10px; background:linear-gradient(145deg,#121e2c,#080d16); box-shadow:0 18px 60px #0009, inset 0 0 30px #1f5b7825; touch-action:manipulation; }
+    .cell { appearance:none; min-width:0; min-height:0; border:1px solid #263c4e; border-radius:7px; background:#0a111b; display:grid; place-items:center; padding:3px; position:relative; transition:transform .12s, border-color .12s, background .12s, box-shadow .12s; }
+    .cell:active { transform:scale(.95); }
+    .cell.selected { border-color:var(--accent); background:#112536; box-shadow:0 0 0 2px #49e3ff40, inset 0 0 15px #49e3ff26; }
+    .cell.bottom-row { border-bottom-color:#466a81; }
+    .cell.clearing { animation:charge .62s ease-in-out infinite alternate; border-color:#edfbff; z-index:2; }
+    @keyframes charge { from { box-shadow:0 0 3px #49e3ff55; background:#16334b; } to { box-shadow:0 0 18px #8cf4ff, inset 0 0 18px #49e3ff99; background:#265b73; } }
+    .module { width:76%; height:76%; position:relative; filter:drop-shadow(0 0 5px currentColor); }
+    .module::after { content:""; position:absolute; inset:17%; border:1px solid #eafaff66; opacity:.8; }
+    .blue { color:#42caff; background:#1978b8; border:2px solid #79ddff; box-shadow:inset 0 0 0 3px #0b456e; }
+    .red { color:#ff5a70; background:#a62f45; border:2px solid #ff8595; clip-path:polygon(50% 4%,97% 94%,3% 94%); }
+    .red::after { inset:38% 34% 16%; border-width:0 1px 1px; }
+    .green { color:#65eb96; background:#218753; border:2px solid #8affb3; clip-path:polygon(25% 4%,75% 4%,100% 50%,75% 96%,25% 96%,0 50%); }
+    .green::after { inset:26%; }
+    .yellow { color:#ffe66c; background:#b58e23; border:2px solid #fff09b; border-radius:50%; box-shadow:inset 0 0 0 4px #61470a; }
+    .yellow::after { border-radius:50%; inset:25%; }
+    .battery-piece { width:70%; height:50%; border:2px solid #d1dae1; border-radius:3px; position:relative; color:#d9e6ec; background:linear-gradient(90deg,#57636d,#a1afb8); box-shadow:0 0 9px #dcecff55; }
+    .battery-piece::before { content:""; position:absolute; top:27%; right:-16%; width:13%; height:46%; border-radius:0 2px 2px 0; background:#d1dae1; }
+    .battery-piece::after { content:"+"; position:absolute; inset:0; display:grid; place-items:center; font-weight:900; font-size:clamp(.75rem,2.5vw,1.05rem); color:#101820; text-shadow:none; }
+    .hint { min-height:1.5em; text-align:center; color:var(--muted); font-size:.78rem; letter-spacing:.03em; }
+    .start-screen,.modal { position:fixed; inset:0; z-index:10; padding:24px; display:grid; place-items:center; background:radial-gradient(circle at 50% 22%,#16334b 0,#090e17 37%,#05070b 100%); }
+    .start-card,.modal-card { width:min(100%,420px); text-align:center; }
+    .logo { letter-spacing:.34em; margin:0 -.34em 4px 0; font-size:clamp(3.4rem,17vw,5.6rem); font-weight:900; color:#eefbff; text-shadow:0 0 23px #49e3ff99; }
+    .tagline { color:#8ca8bb; margin:0 0 45px; letter-spacing:.12em; }
+    .button-stack { display:grid; gap:11px; }
+    .action { border:1px solid #406279; padding:15px 18px; border-radius:5px; letter-spacing:.13em; font-weight:800; background:#101c29; }
+    .action.primary { background:#48d7f3; color:#061017; border-color:#a5f6ff; box-shadow:0 0 20px #49e3ff55; }
+    .action:active { transform:translateY(1px); }
+    .how-panel { display:none; margin-top:22px; padding:18px; border:1px solid #2d4a60; border-radius:6px; background:#08111bcc; color:#b7cbd9; text-align:left; line-height:1.55; font-size:.85rem; }
+    .how-panel.open { display:block; }
+    .how-panel ol { margin:0; padding-left:1.4em; }
+    .modal { display:none; background:#04070bdc; backdrop-filter:blur(8px); }
+    .modal.open { display:grid; }
+    .modal-card { padding:28px; border:1px solid #3d5b70; border-radius:10px; background:#0c1420; box-shadow:0 18px 60px #000c; }
+    .modal h2 { margin:0 0 20px; font-size:2.25rem; letter-spacing:.13em; color:#ff7184; }
+    .final-stats { display:grid; grid-template-columns:1fr 1fr; gap:9px; margin:0 0 24px; color:#91a8b9; font-size:.78rem; }
+    .final-stats strong { display:block; color:#f0f9ff; font-size:1.3rem; margin-top:4px; }
+    .pause { font-size:.72rem; padding:10px; }
+    .debug-toggle { position:fixed; right:10px; bottom:10px; z-index:12; border:1px solid #334b5f; background:#101a25; color:#a9c1d0; border-radius:4px; padding:6px 8px; font-size:.66rem; }
+    .debug { display:none; position:fixed; z-index:13; right:10px; bottom:43px; width:min(310px,calc(100vw - 20px)); padding:12px; border:1px solid #3d586c; border-radius:7px; background:#0b121df7; box-shadow:0 12px 40px #000b; font-size:.7rem; }
+    .debug.open { display:block; }
+    .debug h3 { margin:0 0 10px; color:#8cecff; font-size:.8rem; letter-spacing:.08em; }
+    .debug-grid { display:grid; grid-template-columns:1fr 74px; gap:6px 10px; align-items:center; }
+    .debug input { width:100%; padding:5px; color:#e7f5ff; background:#111d29; border:1px solid #39546a; border-radius:3px; }
+    .debug-actions { display:grid; grid-template-columns:1fr 1fr; gap:7px; margin-top:10px; }
+    .debug-actions button { padding:7px 5px; border:1px solid #3e5d71; border-radius:3px; background:#152434; font-size:.65rem; }
+    @media (max-height:680px) and (min-width:650px) { .app{padding-top:10px}.board{max-height:calc(100dvh - 120px);width:auto}.game-ui{gap:9px} }
+    @media (max-width:420px) { .app{padding-left:12px;padding-right:12px}.board{gap:4px;padding:5px}.cell{border-radius:5px}.hud{gap:7px}.stats{font-size:.66rem}.battery-status{gap:8px}.battery-shell{height:29px} }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <section class="game-ui" id="gameUi" aria-label="CHARGE Spiel">
+      <header class="hud">
+        <div class="battery-status" aria-label="Smartphone Akku">
+          <div class="battery-shell"><div class="battery-level" id="batteryLevel"></div></div>
+          <strong class="percent" id="batteryPercent">100%</strong>
+        </div>
+        <div class="stats"><div>SCORE <strong id="score">0</strong></div><div>TIME <strong id="time">00:00</strong></div><button class="action pause" id="pauseButton" type="button">PAUSE</button></div>
+      </header>
+      <div class="board-wrap"><div class="board" id="board" role="grid" aria-label="Spielfeld"></div></div>
+      <div class="hint" id="hint" aria-live="polite">Wähle zwei benachbarte Module.</div>
+    </section>
+  </main>
+  <section class="start-screen" id="startScreen">
+    <div class="start-card"><h1 class="logo">CHARGE</h1><p class="tagline">Keep it alive.</p><div class="button-stack"><button class="action primary" id="startButton" type="button">START</button><button class="action" id="howButton" type="button">HOW TO PLAY</button></div><div class="how-panel" id="howPanel"><ol><li>Tausche zwei direkt benachbarte Felder.</li><li>Alle normalen Steine unten müssen dieselbe Farbe haben.</li><li>Batterien dürfen dazwischen liegen und werden eingesammelt.</li><li>Fertige Reihen verschwinden automatisch.</li><li>Batterien laden den Akku — maximal bis 100 %.</li><li>Bei 0 % ist das Spiel vorbei.</li></ol></div></div>
+  </section>
+  <section class="modal" id="gameOver" aria-modal="true" role="dialog"><div class="modal-card"><h2>GAME OVER</h2><div class="final-stats"><div>SCORE<strong id="finalScore">0</strong></div><div>ZEIT<strong id="finalTime">00:00</strong></div><div>REIHEN<strong id="finalRows">0</strong></div><div>BATTERIEN<strong id="finalBatteries">0</strong></div></div><button class="action primary" id="restartButton" type="button">RESTART</button></div></section>
+  <button class="debug-toggle" id="debugToggle" type="button">DEBUG</button>
+  <aside class="debug" id="debugPanel"><h3>BALANCE / DEBUG</h3><div class="debug-grid"><label for="cfgCols">Spalten</label><input id="cfgCols" type="number" min="3" max="10"><label for="cfgRows">Reihen</label><input id="cfgRows" type="number" min="3" max="12"><label for="cfgColors">Farben</label><input id="cfgColors" type="number" min="2" max="4"><label for="cfgBatteries">Ziel-Batterien</label><input id="cfgBatteries" type="number" min="0" max="20"><label for="cfgCharge">Batterie-Ladung</label><input id="cfgCharge" type="number" min="1" max="100"><label for="cfgDrain">Entladung / 2 s</label><input id="cfgDrain" type="number" min="0" max="20"></div><div class="debug-actions"><button id="applyConfig" type="button">ANWENDEN</button><button id="setLowBattery" type="button">AKKU 20%</button><button id="addBattery" type="button">+ BATTERIE</button><button id="debugRestart" type="button">NEUSTART</button></div></aside>
+  <script>
+    'use strict';
+    // All starting balance values live here. The debug panel updates these values for a new round.
+    const CONFIG = { cols:7, rows:8, colorCount:4, targetBatteryCount:7, batteryCharge:10, drainIntervalMs:2000, drainAmount:1, rowHighlightMs:480 };
+    const COLORS = ['blue','red','green','yellow'];
+    const COLOR_NAMES = { blue:'BLAU', red:'ROT', green:'GRÜN', yellow:'GELB' };
+    const state = { grid:[], selected:null, running:false, paused:false, resolving:false, battery:100, score:0, rows:0, batteries:0, chain:0, startedAt:0, elapsedBeforePause:0, timerId:null, clockId:null };
+    const $ = id => document.getElementById(id);
+    const board = $('board');
+
+    function randomPiece() { return Math.random() < .12 ? { type:'battery' } : { type:'module', color:COLORS[Math.floor(Math.random()*CONFIG.colorCount)] }; }
+    function createBoard() {
+      state.grid = Array.from({length:CONFIG.rows}, () => Array.from({length:CONFIG.cols}, randomPiece));
+      // Keep the opening board from immediately resolving; it makes the first move intentional.
+      while (isBottomRowValid()) state.grid[CONFIG.rows - 1] = Array.from({length:CONFIG.cols}, randomPiece);
+      ensureBatteryTarget();
+    }
+    function ensureBatteryTarget() {
+      let batteries = state.grid.flat().filter(p => p.type === 'battery').length;
+      const candidates = [];
+      state.grid.forEach((row,r) => row.forEach((piece,c) => { if (piece.type === 'module') candidates.push([r,c]); }));
+      while (batteries < CONFIG.targetBatteryCount && candidates.length) { const [r,c] = candidates.splice(Math.floor(Math.random()*candidates.length),1)[0]; state.grid[r][c] = {type:'battery'}; batteries++; }
+    }
+    function renderBoard() {
+      board.style.gridTemplateColumns = `repeat(${CONFIG.cols}, 1fr)`;
+      board.style.gridTemplateRows = `repeat(${CONFIG.rows}, 1fr)`;
+      board.innerHTML = '';
+      state.grid.forEach((row,r) => row.forEach((piece,c) => {
+        const cell = document.createElement('button'); cell.type = 'button'; cell.className = `cell${r === CONFIG.rows-1 ? ' bottom-row':''}${state.selected?.r===r && state.selected?.c===c ? ' selected':''}`; cell.dataset.row=r; cell.dataset.col=c; cell.setAttribute('role','gridcell');
+        const icon = document.createElement('span'); icon.className = piece.type === 'battery' ? 'battery-piece' : `module ${piece.color}`; icon.setAttribute('aria-label',piece.type==='battery'?'Batterie':COLOR_NAMES[piece.color]); cell.append(icon); cell.addEventListener('click', () => selectCell(r,c)); board.append(cell);
+      }));
+    }
+    function updateHud() {
+      $('batteryPercent').textContent = `${state.battery}%`; $('batteryLevel').style.width = `${state.battery}%`; $('batteryLevel').classList.toggle('low',state.battery <= 25);
+      $('score').textContent = state.score; $('time').textContent = formatTime(getElapsed());
+    }
+    function formatTime(ms) { const total=Math.floor(ms/1000), min=Math.floor(total/60); return `${String(min).padStart(2,'0')}:${String(total%60).padStart(2,'0')}`; }
+    function getElapsed() { return state.startedAt ? state.elapsedBeforePause + (state.paused ? 0 : Date.now()-state.startedAt) : 0; }
+    function setHint(message) { $('hint').textContent = message; }
+    function isAdjacent(a,b) { return Math.abs(a.r-b.r)+Math.abs(a.c-b.c) === 1; }
+    async function selectCell(r,c) {
+      if (!state.running || state.paused || state.resolving) return;
+      const next={r,c};
+      if (!state.selected) { state.selected=next; setHint('Zweites, direkt benachbartes Feld wählen.'); renderBoard(); return; }
+      if (state.selected.r===r && state.selected.c===c) { state.selected=null; setHint('Auswahl aufgehoben.'); renderBoard(); return; }
+      if (!isAdjacent(state.selected,next)) { state.selected=next; setHint('Nicht benachbart — neue Auswahl gesetzt.'); renderBoard(); return; }
+      const first=state.selected; state.selected=null; swap(first,next); renderBoard(); setHint('Tausch ausgeführt.'); await resolveBoard();
+    }
+    function swap(a,b) { [state.grid[a.r][a.c],state.grid[b.r][b.c]] = [state.grid[b.r][b.c],state.grid[a.r][a.c]]; }
+    function isBottomRowValid() {
+      const modules=state.grid[CONFIG.rows-1].filter(p => p.type==='module');
+      return modules.length > 0 && modules.every(p => p.color === modules[0].color);
+    }
+    function sleep(ms) { return new Promise(resolve => setTimeout(resolve,ms)); }
+    async function resolveBoard() {
+      state.resolving=true; state.chain=0;
+      while (state.running && isBottomRowValid()) {
+        state.chain++;
+        const bottom=state.grid[CONFIG.rows-1]; const collected=bottom.filter(p=>p.type==='battery').length;
+        document.querySelectorAll('.bottom-row').forEach(cell=>cell.classList.add('clearing'));
+        setHint(`REIHE SYNCHRONISIERT · ${state.chain}. KETTE`); await sleep(CONFIG.rowHighlightMs);
+        state.rows++; state.batteries+=collected; state.score += 100 + (state.chain-1)*50 + collected*50;
+        changeBattery(collected*CONFIG.batteryCharge);
+        state.grid.pop(); state.grid.unshift(Array.from({length:CONFIG.cols},randomPiece)); ensureBatteryTarget(); renderBoard(); updateHud();
+        await sleep(180);
+      }
+      state.resolving=false; if (state.running) setHint('Wähle zwei benachbarte Module.');
+    }
+    function changeBattery(amount) { state.battery=Math.max(0,Math.min(100,state.battery+amount)); updateHud(); if (state.battery===0) endGame(); }
+    function startGame() {
+      clearTimers(); Object.assign(state,{selected:null,running:true,paused:false,resolving:false,battery:100,score:0,rows:0,batteries:0,chain:0,startedAt:Date.now(),elapsedBeforePause:0});
+      createBoard(); renderBoard(); updateHud(); $('startScreen').style.display='none'; $('gameOver').classList.remove('open'); $('gameUi').classList.add('visible'); $('pauseButton').textContent='PAUSE'; setHint('Wähle zwei benachbarte Module.');
+      state.timerId=setInterval(()=>changeBattery(-CONFIG.drainAmount),CONFIG.drainIntervalMs); state.clockId=setInterval(updateHud,250);
+    }
+    function clearTimers() { clearInterval(state.timerId); clearInterval(state.clockId); state.timerId=state.clockId=null; }
+    function togglePause() {
+      if (!state.running || state.resolving) return;
+      if (!state.paused) { state.elapsedBeforePause=getElapsed(); state.paused=true; clearInterval(state.timerId); $('pauseButton').textContent='RESUME'; setHint('PAUSIERT'); }
+      else { state.paused=false; state.startedAt=Date.now(); state.timerId=setInterval(()=>changeBattery(-CONFIG.drainAmount),CONFIG.drainIntervalMs); $('pauseButton').textContent='PAUSE'; setHint('Wähle zwei benachbarte Module.'); }
+      updateHud();
+    }
+    function endGame() {
+      if (!state.running) return; state.elapsedBeforePause=getElapsed(); state.running=false; state.paused=true; clearTimers(); state.selected=null; renderBoard(); updateHud();
+      $('finalScore').textContent=state.score; $('finalTime').textContent=formatTime(state.elapsedBeforePause); $('finalRows').textContent=state.rows; $('finalBatteries').textContent=state.batteries; $('gameOver').classList.add('open');
+    }
+    function addDebugBattery() {
+      if (!state.running || state.resolving) return;
+      const modules=[]; state.grid.forEach((row,r)=>row.forEach((p,c)=>{if(p.type==='module')modules.push([r,c]);})); if (!modules.length) return;
+      const [r,c]=modules[Math.floor(Math.random()*modules.length)]; state.grid[r][c]={type:'battery'}; renderBoard(); setHint('Test-Batterie eingesetzt.');
+    }
+    function applyConfig() {
+      CONFIG.cols=Number($('cfgCols').value); CONFIG.rows=Number($('cfgRows').value); CONFIG.colorCount=Number($('cfgColors').value); CONFIG.targetBatteryCount=Number($('cfgBatteries').value); CONFIG.batteryCharge=Number($('cfgCharge').value); CONFIG.drainAmount=Number($('cfgDrain').value); startGame();
+    }
+    function loadConfigInputs() { $('cfgCols').value=CONFIG.cols; $('cfgRows').value=CONFIG.rows; $('cfgColors').value=CONFIG.colorCount; $('cfgBatteries').value=CONFIG.targetBatteryCount; $('cfgCharge').value=CONFIG.batteryCharge; $('cfgDrain').value=CONFIG.drainAmount; }
+    $('startButton').addEventListener('click',startGame); $('restartButton').addEventListener('click',startGame); $('pauseButton').addEventListener('click',togglePause);
+    $('howButton').addEventListener('click',()=>{ const open=$('howPanel').classList.toggle('open'); $('howButton').textContent=open?'CLOSE GUIDE':'HOW TO PLAY'; });
+    $('debugToggle').addEventListener('click',()=>$('debugPanel').classList.toggle('open')); $('applyConfig').addEventListener('click',applyConfig); $('setLowBattery').addEventListener('click',()=>{ if(state.running){state.battery=20;updateHud();setHint('Akku auf 20 % gesetzt.');} }); $('addBattery').addEventListener('click',addDebugBattery); $('debugRestart').addEventListener('click',startGame);
+    loadConfigInputs();
+  </script>
+</body>
+</html>
